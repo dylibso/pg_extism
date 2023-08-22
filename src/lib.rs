@@ -32,8 +32,7 @@ struct PluginMetadata {
 fn extism_call(path: &str, name: &str, input: Json) -> Result<Json, Error> {
     let json_string = serde_json::to_string(&input.0).unwrap();
 
-    let ctx = Context::new();
-    let mut plugin = new_plugin(&ctx, path);
+    let mut plugin = new_plugin(path);
 
     let data = match plugin.call(name, json_string) {
         Ok(v) => v,
@@ -52,21 +51,20 @@ fn extism_call(path: &str, name: &str, input: Json) -> Result<Json, Error> {
 
 #[pg_extern]
 fn extism_define(path: &str, name: &str) -> Result<(), Error> {
-    let ctx = Context::new();
-    let mut plugin = new_plugin(&ctx, path);
+    let mut plugin = new_plugin(path);
 
     if !plugin.has_function("metadata") {
-        return Err(error!("Expected a `metadata` function."));
+        error!("Expected a `metadata` function.");
     }
 
     let metadata_json = match plugin.call("metadata", "") {
         Ok(v) => v,
-        Err(err) => return Err(error!("Failed to call metadata function: {}", err)),
+        Err(err) => error!("Failed to call metadata function: {}", err),
     };
 
     let metadata: PluginMetadata = match serde_json::from_slice(metadata_json) {
         Ok(v) => v,
-        Err(err) => return Err(error!("Failed to deserialize metadata: {}", err)),
+        Err(err) => error!("Failed to deserialize metadata: {}", err),
     };
 
     // Write an SQL function that calls `extism_call` when it's run
@@ -178,7 +176,7 @@ fn is_array(param_type: &Type) -> bool {
     }
 }
 
-fn new_plugin<'a>(ctx: &'a Context, path: &'a str) -> Plugin<'a> {
+fn new_plugin<'a>(path: &'a str) -> Plugin<'a> {
     let openai_api_key = env::var("OPENAI_API_KEY").expect("Error: OPENAI_API_KEY not found");
 
     let manifest = Manifest::new(vec![Wasm::file(path)])
@@ -188,7 +186,7 @@ fn new_plugin<'a>(ctx: &'a Context, path: &'a str) -> Plugin<'a> {
         .with_config(vec![("openai_apikey".to_string(), openai_api_key)].into_iter())
         .with_timeout(std::time::Duration::from_secs(10));
 
-    return Plugin::new_with_manifest(ctx, &manifest, [], true).unwrap();
+    return Plugin::create_with_manifest(&manifest, [], true).unwrap();
 }
 
 #[cfg(any(test, feature = "pg_test"))]
