@@ -177,7 +177,8 @@ fn is_array(param_type: &Type) -> bool {
 }
 
 fn new_plugin<'a>(path: &'a str) -> Plugin<'a> {
-    let openai_api_key = env::var("OPENAI_API_KEY").expect("Error: OPENAI_API_KEY not found");
+    let openai_api_key = env::var("OPENAI_API_KEY")
+        .expect("Error: `OPENAI_API_KEY` environment variable not found");
 
     let manifest = Manifest::new(vec![Wasm::file(path)])
         .with_memory_options(MemoryOptions { max_pages: Some(5) })
