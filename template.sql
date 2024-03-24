@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION public.extism_create_plugin(manifest integer, opts integer)
+CREATE OR REPLACE FUNCTION extism_create_plugin(manifest integer, opts integer)
 RETURNS integer
 LANGUAGE plv8
 AS $function$
@@ -7,7 +7,7 @@ AS $function$
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.extism_call(wasm bytea, func text, input text)
+CREATE OR REPLACE FUNCTION extism_call(wasm bytea, func text, input text)
  RETURNS text
  LANGUAGE plv8
 AS $function$
