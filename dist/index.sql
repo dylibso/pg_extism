@@ -137,6 +137,7 @@ AS $function$
     __export(src_exports, {
       CurrentPlugin: () => CurrentPlugin,
       Plugin: () => Plugin,
+      PluginOutput: () => PluginOutput,
       PluginWasi: () => PluginWasi,
       createPlugin: () => createPlugin,
       decodeString: () => decodeString,
@@ -147,6 +148,25 @@ AS $function$
     });
     
     var import_base64_js = __toESM(require_base64_js());
+    var PluginOutput = class extends DataView {
+      #output;
+      constructor(output) {
+        super(output.buffer);
+        this.#output = output;
+      }
+      json() {
+        return JSON.parse(this.text());
+      }
+      text() {
+        return decodeString(this.#output);
+      }
+      bytes() {
+        return this.#output;
+      }
+      arrayBuffer() {
+        return this.#output.buffer;
+      }
+    };
     var Plugin = class {
       moduleData;
       currentPlugin;
@@ -199,7 +219,8 @@ AS $function$
         return this.output;
       }
       call(func_name, input) {
-        return decodeString(this.callRaw(func_name, encodeString(input)));
+        const output = this.callRaw(func_name, encodeString(input));
+        return new PluginOutput(output);
       }
       loadWasi(options) {
         const args = [];
@@ -218,19 +239,6 @@ AS $function$
           throw new Error("The module has to export a default memory.");
         }
         wasi.start(wrapper);
-      }
-      supportsHttpRequests() {
-        return false;
-      }
-      httpRequest(request, body) {
-        throw new Error("Call error: http requests are not supported.");
-      }
-      matches(text, pattern) {
-        let regex = new RegExp("^" + pattern.split(/\*+/).map((s) => s.split("").map(this.escapeRegExp).join("")).join(".*") + "$");
-        return regex.test(text);
-      }
-      escapeRegExp(text) {
-        return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       }
       instantiateModule() {
         if (this.module) {
@@ -308,100 +316,68 @@ AS $function$
             plugin.output = cp.getMemoryBuffer().slice(offs, offs + len);
           },
           error_set(cp, i) {
-            throw new Error(`Call error: ${cp.readString(i)}`);
+            throw new Error(`Call error: ${cp.read(i)?.text()}`);
           },
           config_get(cp, i) {
             if (typeof plugin.options.config === "undefined") {
               return BigInt(0);
             }
-            const key = cp.readString(i);
-            if (key === null) {
+            const key = cp.read(i)?.text();
+            if (!key) {
               return BigInt(0);
             }
             const value = plugin.options.config[key];
             if (typeof value === "undefined") {
               return BigInt(0);
             }
-            return cp.writeString(value);
+            return cp.store(value);
           },
           var_get(cp, i) {
-            const key = cp.readString(i);
-            if (key === null) {
+            const key = cp.read(i)?.text();
+            if (!key) {
               return BigInt(0);
             }
             const value = cp.vars[key];
             if (typeof value === "undefined") {
               return BigInt(0);
             }
-            return cp.writeBytes(value);
+            return cp.store(value);
           },
           var_set(cp, n, i) {
-            const key = cp.readString(n);
-            if (key === null) {
+            const key = cp.read(n)?.text();
+            if (!key) {
               return;
             }
-            const value = cp.readBytes(i);
-            if (value === null) {
+            const value = cp.read(i)?.bytes();
+            if (!value) {
               return;
             }
             cp.vars[key] = value;
           },
           http_request(cp, requestOffset, bodyOffset) {
-            if (!plugin.supportsHttpRequests()) {
-              cp.free(bodyOffset);
-              cp.free(requestOffset);
-              throw new Error("Call error: http requests are not supported.");
-            }
-            const requestJson = cp.readString(requestOffset);
-            if (requestJson == null) {
-              throw new Error("Call error: Invalid request.");
-            }
-            var request = JSON.parse(requestJson);
-            const url = new URL(request.url);
-            let hostMatches = false;
-            for (const allowedHost of plugin.options.allowedHosts ?? []) {
-              if (allowedHost === url.hostname) {
-                hostMatches = true;
-                break;
-              }
-              const patternMatches = plugin.matches(url.hostname, allowedHost);
-              if (patternMatches) {
-                hostMatches = true;
-                break;
-              }
-            }
-            if (!hostMatches) {
-              throw new Error(`Call error: HTTP request to '${request.url}' is not allowed`);
-            }
-            const body = cp.readBytes(bodyOffset);
-            cp.free(bodyOffset);
-            cp.free(requestOffset);
-            const response = plugin.httpRequest(request, body);
-            plugin.lastStatusCode = response.status;
-            const offset = cp.writeBytes(response.body);
-            return offset;
+            throw new Error("Call error: http requests are not supported.");
           },
           http_status_code() {
             return plugin.lastStatusCode;
           },
           length(cp, i) {
-            return cp.getLength(i);
+            return cp.length(i);
           },
           log_warn(cp, i) {
-            const s = cp.readString(i);
-            console.warn(s);
+            const s = cp.read(i)?.text();
+            plv8.elog(WARNING, s);
           },
           log_info(cp, i) {
-            const s = cp.readString(i);
-            console.log(s);
+            const s = cp.read(i)?.text();
+            plv8.elog(INFO, s);
           },
           log_debug(cp, i) {
-            const s = cp.readString(i);
-            console.debug(s);
+            const s = cp.read(i)?.text();
+            plv8.elog(DEBUG1, s);
           },
           log_error(cp, i) {
-            const s = cp.readString(i);
-            console.error(s);
+            const s = cp.read(i)?.text();
+            plv8.elog(ERROR, s);
           }
         };
         return env;
@@ -503,7 +479,7 @@ AS $function$
         this.plugin = plugin;
         this.#extism = extism;
       }
-      setVar(name, value) {
+      setVariable(name, value) {
         if (value instanceof Uint8Array) {
           this.vars[name] = value;
         } else if (typeof value === "string") {
@@ -515,30 +491,17 @@ AS $function$
           throw new TypeError(`Invalid plugin variable type. Expected Uint8Array, string, or number, got ${typeName}`);
         }
       }
-      readStringVar(name) {
-        return decodeString(this.getVar(name));
-      }
-      getNumberVar(name) {
-        const value = this.getVar(name);
-        if (value.length < 4) {
-          throw new Error(`Variable "${name}" has incorrect length`);
-        }
-        return this.uintFromLEBytes(value);
-      }
-      getVar(name) {
+      getVariable(name) {
         const value = this.vars[name];
         if (!value) {
           throw new Error(`Variable ${name} not found`);
         }
-        return value;
+        return new PluginOutput(value);
       }
       uintToLEBytes(num) {
         const bytes = new Uint8Array(4);
         new DataView(bytes.buffer).setUint32(0, num, true);
         return bytes;
-      }
-      uintFromLEBytes(bytes) {
-        return new DataView(bytes.buffer).getUint32(0, true);
       }
       reset() {
         return this.#extism.exports.reset();
@@ -552,32 +515,25 @@ AS $function$
       getMemoryBuffer() {
         return new Uint8Array(this.getMemory().buffer);
       }
-      readBytes(offset) {
+      read(offset) {
         if (offset == BigInt(0)) {
           return null;
         }
-        const length = this.getLength(offset);
+        const length = this.length(offset);
         const buffer = new Uint8Array(this.getMemory().buffer, Number(offset), Number(length));
-        return new Uint8Array(buffer);
+        return new PluginOutput(new Uint8Array(buffer));
       }
-      readString(offset) {
-        const bytes = this.readBytes(offset);
-        if (bytes === null) {
-          return null;
-        }
-        return decodeString(bytes);
-      }
-      writeBytes(data) {
+      store(data) {
         const offs = this.alloc(BigInt(data.length));
         const buffer = new Uint8Array(this.getMemory().buffer, Number(offs), data.length);
-        buffer.set(data);
+        if (typeof data === "string") {
+          buffer.set(encodeString(data));
+        } else {
+          buffer.set(data);
+        }
         return offs;
       }
-      writeString(data) {
-        const bytes = encodeString(data);
-        return this.writeBytes(bytes);
-      }
-      getLength(offset) {
+      length(offset) {
         return this.#extism.exports.length(offset);
       }
       inputLength() {

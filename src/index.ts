@@ -1,4 +1,29 @@
 import { toByteArray } from "base64-js";
+import { sha256 } from "js-sha256";
+
+export class PluginOutput extends DataView {
+  #output: Uint8Array;
+  constructor(output: Uint8Array) {
+    super(output.buffer);
+    this.#output = output;
+  }
+
+  json(): any {
+    return JSON.parse(this.text());
+  }
+
+  text(): string {
+    return decodeString(this.#output);
+  }
+
+  bytes(): Uint8Array {
+    return this.#output;
+  }
+
+  arrayBuffer(): ArrayBufferLike {
+    return this.#output.buffer;
+  }
+}
 
 export class Plugin {
   moduleData: ArrayBuffer;
@@ -77,8 +102,9 @@ export class Plugin {
     return this.output;
   }
 
-  call(func_name: string, input: string): string {
-    return decodeString(this.callRaw(func_name, encodeString(input)));
+  call(func_name: string, input: string): PluginOutput | null {
+    const output = this.callRaw(func_name, encodeString(input));
+    return new PluginOutput(output);
   }
 
   protected loadWasi(options: ExtismPluginOptions): PluginWasi {
@@ -101,24 +127,6 @@ export class Plugin {
     }
 
     wasi.start(wrapper);
-  }
-
-  private supportsHttpRequests(): boolean {
-    return false;
-  }
-
-  private httpRequest(request: HttpRequest, body: Uint8Array | null): HttpResponse {
-    throw new Error('Call error: http requests are not supported.');
-  }
-
-  private matches(text: string, pattern: string): boolean {
-    // Convert glob pattern to regex
-    let regex = new RegExp('^' + pattern.split(/\*+/).map(s => s.split('').map(this.escapeRegExp).join('')).join('.*') + '$');
-    return regex.test(text);
-  }
-
-  private escapeRegExp(text: string) {
-      return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
   }
 
   private instantiateModule(): WebAssembly.WebAssemblyInstantiatedSource {
@@ -208,112 +216,73 @@ export class Plugin {
         plugin.output = cp.getMemoryBuffer().slice(offs, offs + len);
       },
       error_set(cp: CurrentPlugin, i: bigint) {
-        throw new Error(`Call error: ${cp.readString(i)}`);
+        throw new Error(`Call error: ${cp.read(i)?.text()}`);
       },
       config_get(cp: CurrentPlugin, i: bigint): bigint {
         if (typeof plugin.options.config === 'undefined') {
           return BigInt(0);
         }
-        const key = cp.readString(i);
-        if (key === null) {
+        const key = cp.read(i)?.text()
+        if (!key) {
           return BigInt(0);
         }
         const value = plugin.options.config[key];
         if (typeof value === 'undefined') {
           return BigInt(0);
         }
-        return cp.writeString(value);
+        return cp.store(value);
       },
       var_get(cp: CurrentPlugin, i: bigint): bigint {
-        const key = cp.readString(i);
-        if (key === null) {
+        const key = cp.read(i)?.text();
+        if (!key) {
           return BigInt(0);
         }
         const value = cp.vars[key];
         if (typeof value === 'undefined') {
           return BigInt(0);
         }
-        return cp.writeBytes(value);
+        return cp.store(value);
       },
       var_set(cp: CurrentPlugin, n: bigint, i: bigint) {
-        const key = cp.readString(n);
-        if (key === null) {
+        const key = cp.read(n)?.text();
+        if (!key) {
           return;
         }
-        const value = cp.readBytes(i);
-        if (value === null) {
+        const value = cp.read(i)?.bytes();
+        if (!value) {
           return;
         }
         cp.vars[key] = value;
       },
       http_request(cp: CurrentPlugin, requestOffset: bigint, bodyOffset: bigint): bigint {
-        if (!plugin.supportsHttpRequests()) {
-          cp.free(bodyOffset);
-          cp.free(requestOffset);
-          throw new Error('Call error: http requests are not supported.');
-        }
-
-        const requestJson = cp.readString(requestOffset);
-        if (requestJson == null) {
-          throw new Error('Call error: Invalid request.');
-        }
-
-        var request: HttpRequest = JSON.parse(requestJson);
-
-        // The actual code starts here
-        const url = new URL(request.url);
-        let hostMatches = false;
-        for (const allowedHost of (plugin.options.allowedHosts ?? [])) {
-          if (allowedHost === url.hostname) {
-            hostMatches = true;
-            break;
-          }
-
-          // Using minimatch for pattern matching
-          const patternMatches = plugin.matches(url.hostname, allowedHost);
-          if (patternMatches) {
-            hostMatches = true;
-            break;
-          }
-        }
-
-        if (!hostMatches) {
-          throw new Error(`Call error: HTTP request to '${request.url}' is not allowed`);
-        }
-
-        // TODO: limit number of bytes read to 50 MiB
-        const body = cp.readBytes(bodyOffset);
-        cp.free(bodyOffset);
-        cp.free(requestOffset);
-
-        const response = plugin.httpRequest(request, body);
-        plugin.lastStatusCode = response.status;
-
-        const offset = cp.writeBytes(response.body);
-
-        return offset;
+        throw new Error('Call error: http requests are not supported.');
       },
       http_status_code(): number {
         return plugin.lastStatusCode;
       },
       length(cp: CurrentPlugin, i: bigint): bigint {
-        return cp.getLength(i);
+        return cp.length(i);
       },
       log_warn(cp: CurrentPlugin, i: bigint) {
-        const s = cp.readString(i);
-        console.warn(s);
+        const s = cp.read(i)?.text();
+
+        // @ts-ignore
+        plv8.elog(WARNING, s);
       },
       log_info(cp: CurrentPlugin, i: bigint) {
-        const s = cp.readString(i);
-        console.log(s);
+        const s = cp.read(i)?.text();
+        // @ts-ignore
+        plv8.elog(INFO, s);
       },
       log_debug(cp: CurrentPlugin, i: bigint) {
-        const s = cp.readString(i);
-        console.debug(s);
+        const s = cp.read(i)?.text();
+        // @ts-ignore
+        plv8.elog(DEBUG1, s);
       },
       log_error(cp: CurrentPlugin, i: bigint) {
-        const s = cp.readString(i);
-        console.error(s);
+        const s = cp.read(i)?.text();
+        // @ts-ignore
+        plv8.elog(ERROR, s);
       },
     };
 
@@ -407,7 +376,6 @@ export interface ExtismPluginOptions {
    */
   functions?: { [key: string]: { [key: string]: (callContext: CurrentPlugin, ...args: any[]) => any } } | undefined;
   allowedPaths?: { [key: string]: string } | undefined;
-  allowedHosts?: string[] | undefined;
   config?: PluginConfigLike | undefined;
   fetch?: typeof fetch;
   sharedArrayBufferSize?: number;
@@ -574,7 +542,7 @@ export class CurrentPlugin {
     this.#extism = extism;
   }
 
-  setVar(name: string, value: Uint8Array | string | number): void {
+  setVariable(name: string, value: Uint8Array | string | number): void {
     if (value instanceof Uint8Array) {
       this.vars[name] = value;
     } else if (typeof value === 'string') {
@@ -587,26 +555,13 @@ export class CurrentPlugin {
     }
   }
 
-  readStringVar(name: string): string {
-    return decodeString(this.getVar(name));
-  }
-
-  getNumberVar(name: string): number {
-    const value = this.getVar(name);
-    if (value.length < 4) {
-      throw new Error(`Variable "${name}" has incorrect length`);
-    }
-
-    return this.uintFromLEBytes(value);
-  }
-
-  getVar(name: string): Uint8Array {
+  getVariable(name: string): PluginOutput {
     const value = this.vars[name];
     if (!value) {
       throw new Error(`Variable ${name} not found`);
     }
 
-    return value;
+    return new PluginOutput(value);
   }
 
   private uintToLEBytes(num: number): Uint8Array {
@@ -614,10 +569,6 @@ export class CurrentPlugin {
     new DataView(bytes.buffer).setUint32(0, num, true);
 
     return bytes;
-  }
-
-  private uintFromLEBytes(bytes: Uint8Array): number {
-    return new DataView(bytes.buffer).getUint32(0, true);
   }
 
   /**
@@ -658,31 +609,17 @@ export class CurrentPlugin {
    * @param {bigint} offset - Memory offset.
    * @returns {Uint8Array | null} Byte array or null if offset is zero.
    */
-  readBytes(offset: bigint): Uint8Array | null {
+  read(offset: bigint): PluginOutput | null {
     if (offset == BigInt(0)) {
       return null;
     }
 
-    const length = this.getLength(offset);
+    const length = this.length(offset);
 
     const buffer = new Uint8Array(this.getMemory().buffer, Number(offset), Number(length));
 
     // Copy the buffer because `this.getMemory().buffer` returns a write-through view
-    return new Uint8Array(buffer);
-  }
-
-  /**
-   * Retrieves a string from a specific memory offset.
-   * @param {bigint} offset - Memory offset.
-   * @returns {string | null} Decoded string or null if offset is zero.
-   */
-  readString(offset: bigint): string | null {
-    const bytes = this.readBytes(offset);
-    if (bytes === null) {
-      return null;
-    }
-
-    return decodeString(bytes);
+    return new PluginOutput(new Uint8Array(buffer));
   }
 
   /**
@@ -690,21 +627,17 @@ export class CurrentPlugin {
    * @param {Uint8Array} data - Byte array to allocate.
    * @returns {bigint} Memory offset.
    */
-  writeBytes(data: Uint8Array): bigint {
+  store(data: string | Uint8Array): bigint {
     const offs = this.alloc(BigInt(data.length));
     const buffer = new Uint8Array(this.getMemory().buffer, Number(offs), data.length);
-    buffer.set(data);
-    return offs;
-  }
 
-  /**
-   * Allocates a string to the WebAssembly memory.
-   * @param {string} data - String to allocate.
-   * @returns {bigint} Memory offset.
-   */
-  writeString(data: string): bigint {
-    const bytes = encodeString(data);
-    return this.writeBytes(bytes);
+    if (typeof data === 'string') {
+      buffer.set(encodeString(data));
+    } else {
+      buffer.set(data);
+    }
+
+    return offs;
   }
 
   /**
@@ -712,7 +645,7 @@ export class CurrentPlugin {
    * @param {bigint} offset - Memory offset.
    * @returns {bigint} Length of the memory block.
    */
-  getLength(offset: bigint): bigint {
+  length(offset: bigint): bigint {
     return (this.#extism.exports.length as Function)(offset);
   }
 
