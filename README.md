@@ -3,7 +3,7 @@
 **Note**: This is an experimental SDK.
 
 ## Getting started
-Make sure [`plv8`](https://github.com/plv8/plv8) is installed:
+Make sure [`plv8`](https://github.com/plv8/plv8) is installed on your server. Then enable it for your database:
 ```sql
 create extension plv8;
 ```
