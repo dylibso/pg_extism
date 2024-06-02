@@ -33,48 +33,28 @@ select extism_call(data, 'count_vowels', 'Hello World!') from plugins where id =
 If you want more control over your plugin, you can use `extism_create_plugin`:
 
 ```sql
-CREATE TABLE public.kv (
-	id serial4 NOT NULL,
-	"key" bytea NOT NULL,
-	value bytea NULL,
-	CONSTRAINT kv_pkey PRIMARY KEY (id)
-);
+-- DROP FUNCTION public.count_vowels_kv(varchar);
 
 CREATE OR REPLACE FUNCTION public.count_vowels_kv(input character varying)
  RETURNS character varying
  LANGUAGE plv8
 AS $function$
-	function encodeString(str) {
-	  var arr = [];
-	  for (var i = 0, len = str.length; i < len; i++) {
-	    arr.push(str.charCodeAt(i));
-	  }
-	  return new Uint8Array(arr);
-	}
-	function decodeString(arr) {
-	  var str = "";
-	  for (var i = 0, len = arr.length; i < len; i++) {
-	    str += String.fromCharCode(arr[i]);
-	  }
-	  return str;
-	} 
-
 	const createPlugin = plv8.find_function("extism_create_plugin");
-	const wasm = plv8.execute("select data from plugins where id = 3")[0]; -- Assume our plugin ID is 3
+	const wasm = plv8.execute("select data from plugins where id = 3")[0];
 	const opts = {
 		useWasi: true,
 		
 		functions: {
 			"extism:host/user": {
 				kv_read(cp, offs) {
-	                const key = cp.readString(offs);
+	                const key = cp.read(offs).text();
 				    let result = plv8.execute("SELECT value FROM kv WHERE key = $1", [key]);
 				    let value = result.length > 0 ? result[0].value : new Uint8Array([0, 0, 0, 0]);
-				    return cp.writeBytes(value);
+				    return cp.store(value);
 	            },
 	            kv_write(cp, kOffs, vOffs) {
-					const key = cp.readString(kOffs);
-				    const value = cp.readBytes(vOffs);
+					const key = cp.read(kOffs).text();
+				    const value = cp.read(vOffs).bytes();
 				    let result = plv8.execute("SELECT value FROM kv WHERE key = $1", [key]);
 				    if (result.length > 0) {
 				        plv8.execute("UPDATE kv SET value = $1 WHERE key = $2", [value, key]);
@@ -87,9 +67,8 @@ AS $function$
 	};
 
 	const plugin = createPlugin(wasm, opts);
-	return decodeString(plugin.call("count_vowels", encodeString(input)))
+	return plugin.call("count_vowels", input).text()
 $function$
 ;
-
 ```
 The above example shows how you can use `extism_create_plugin` to supply your own host functions to the plugin. You can find th source code for the plugin [here](https://github.com/extism/plugins/tree/main/count_vowels_kvstore).
