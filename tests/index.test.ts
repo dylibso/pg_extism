@@ -12,7 +12,7 @@ async function newPlugin(
     optionsConfig(options);
   }
 
-  let module : Manifest | ManifestWasm | Buffer;
+  let module: Manifest | ManifestWasm | Buffer;
   if (typeof moduleName == 'string') {
     module = {
       data: await readFile(`wasm/${moduleName}`),
@@ -38,16 +38,16 @@ describe('test extism', () => {
     const plugin = await newPlugin('count_vowels.wasm');
     let output = plugin.call('count_vowels', 'this is a test');
 
-    let result = JSON.parse(output);
+    let result = output?.json();
     expect(result['count']).toBe(4);
     output = plugin.call('count_vowels', 'this is a test again');
-    result = JSON.parse(output);
+    result = output?.json();
     expect(result['count']).toBe(7);
     output = plugin.call('count_vowels', 'this is a test thrice');
-    result = JSON.parse(output);
+    result = output?.json();
     expect(result['count']).toBe(6);
     output = plugin.call('count_vowels', '🌎hello🌎world🌎');
-    result = JSON.parse(output);
+    result = output?.json();
     expect(result['count']).toBe(3);
   });
 
@@ -59,7 +59,8 @@ describe('test extism', () => {
 
   test('errors when function is not known', async () => {
     const plugin = await newPlugin('count_vowels.wasm');
-    expect(plugin.call('i_dont_exist', 'example-input')).toThrow();
+    expect(() => plugin.call('i_dont_exist', 'example-input')).toThrow('Plugin error: function does not exist i_dont_exist');
+    // expect(plugin.call('i_dont_exist', 'example-input')).rejects.toThrow('Plugin error: function does not exist i_dont_exist');
   });
 
   test('plugin can allocate memory', async () => {
@@ -73,25 +74,35 @@ describe('test extism', () => {
   });
 
   test('host functions works', async () => {
-    const plugin = await newPlugin('code-functions.wasm', options => {
+    const kv = new Map<string, Uint8Array>();
+
+    const plugin = await newPlugin('count_vowels_kvstore.wasm', options => {
       options.functions ??= {};
 
       options.functions["extism:host/user"] = {
-        "hello_world": (plugin: CurrentPlugin, off: bigint) => {
-          let result = JSON.parse(plugin.readString(off) ?? "");
-          result['message'] = "hello from host!";
-  
-          return plugin.writeString(JSON.stringify(result));
+        kv_read(cp, offs) {
+          const key = cp.read(offs)?.text()!;
+          const value = kv.get(key) ?? new Uint8Array([0, 0, 0, 0]);
+          return cp.store(value);
+        },
+        kv_write(cp, kOffs, vOffs) {
+          const key = cp.read(kOffs)?.text()!;
+          const value = cp.read(vOffs)?.bytes()!;
+          kv.set(key, value);
         }
       }
     });
 
-    const output = plugin.call('count_vowels', 'aaa');
-    const result = JSON.parse(output);
+    let result;
+    for (let i = 0; i < 3; i++) {
+      const output = plugin.call('count_vowels', 'aaa');
+      result = output?.json();
+    }
 
     expect(result).toStrictEqual({
       count: 3,
-      message: "hello from host!"
+      total: 9,
+      vowels: "aeiouAEIOU"
     })
   });
 
@@ -102,27 +113,27 @@ describe('test extism', () => {
 
   test('can initialize haskell runtime', async () => {
     console.trace = jest.fn();
-    
+
     const plugin = await newPlugin('hello_haskell.wasm', options => {
       options.config = {
         "greeting": "Howdy"
       };
     });
-    
+
     {
       const output = await plugin.call("testing", "John");
       const result = output;
-      
+
       expect(result).toBe("Howdy, John")
     }
-    
+
     {
       const output = await plugin.call("testing", "Ben");
       const result = output;
-      
+
       expect(result).toBe("Howdy, Ben")
     }
-    
+
     expect(console.debug).toHaveBeenCalledWith("Haskell (normal) runtime detected.");
   });
 });
