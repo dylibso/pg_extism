@@ -1,4 +1,5 @@
 import { toByteArray } from "base64-js";
+import { initialize } from "esbuild";
 import { sha256 } from "js-sha256";
 
 export class PluginOutput extends DataView {
@@ -43,7 +44,7 @@ export class Plugin {
     this.input = new Uint8Array();
     this.output = new Uint8Array();
     this.options = options;
-    this.guestRuntime = { type: GuestRuntimeType.None, init: () => {}, initialized: true };
+    this.guestRuntime = { type: GuestRuntimeType.None, init: () => { }, initialized: true };
   }
 
   getExports(): WebAssembly.Exports {
@@ -111,22 +112,7 @@ export class Plugin {
     const args: Array<string> = [];
     const envVars: Array<string> = [];
 
-    return new PluginWasi({}, {}, instance => this.initialize({}, instance));
-  }
-
-  private initialize(wasi: any, instance: WebAssembly.Instance) {
-    const wrapper = {
-      exports: {
-        memory: instance.exports.memory as WebAssembly.Memory,
-        _start() {},
-      },
-    };
-
-    if (!wrapper.exports.memory) {
-      throw new Error('The module has to export a default memory.');
-    }
-
-    wasi.start(wrapper);
+    return new PluginWasi();
   }
 
   private instantiateModule(): WebAssembly.WebAssemblyInstantiatedSource {
@@ -166,8 +152,8 @@ export class Plugin {
       instance: instance,
     };
 
-    if (this.module.instance.exports._start) {
-      pluginWasi?.initialize(this.module.instance);
+    if (pluginWasi) {
+      pluginWasi.initialize(this.module.instance);
     }
 
     this.guestRuntime = detectGuestRuntime(this.module.instance);
@@ -175,7 +161,7 @@ export class Plugin {
     return this.module;
   }
 
-  
+
   private makeEnv(): any {
     let plugin = this;
     var env: any = {
@@ -392,14 +378,178 @@ export interface PluginConfigLike {
  * Provides a unified interface for the supported WASI implementations.
  */
 export class PluginWasi {
-  wasi: any;
   imports: any;
-  #initialize: (instance: WebAssembly.Instance) => void;
+  inst: WebAssembly.Instance | null = null;
+  args: string[];
+  env: string[];
 
-  constructor(wasi: any, imports: any, init: (instance: WebAssembly.Instance) => void) {
-    this.wasi = wasi;
-    this.imports = imports;
-    this.#initialize = init;
+  constructor(args: string[] = [], env: string[] = []) {
+    this.args = args;
+    this.env = env;
+
+    const self = this;
+    function memory(): WebAssembly.Memory {
+      return self.inst!.exports.memory as WebAssembly.Memory;
+    }
+
+    this.imports = {
+      fd_write: (fd: number, iovs: number, iovs_len: number, nwritten: number) => {
+        // we only support stdin, stdout, and stderr
+        if (fd < 0 || fd > 2) {
+          throw new Error('fd_write not implemented');
+        }
+
+        const buffer = memory().buffer;
+        const view = new DataView(buffer);
+        let written = 0;
+
+        let totalLength = 0;
+        for (let i = 0; i < iovs_len; i++) {
+          const len = view.getUint32(iovs + i * 8 + 4, true);
+          totalLength += len;
+        }
+
+        const temp = new Uint8Array(totalLength);
+
+        for (let i = 0; i < iovs_len; i++) {
+          const iov = view.getUint32(iovs + i * 8, true);
+          const len = view.getUint32(iovs + i * 8 + 4, true);
+          const bytes = new Uint8Array(buffer, iov, len);
+          temp.set(bytes, written);
+          written += len;
+        }
+
+        const output = new TextDecoder().decode(temp);
+        console.log(output);
+
+        view.setUint32(nwritten, written, true);
+        return 0;
+      },
+      fd_close(fd: number): number {
+        // we only support stdin, stdout, and stderr
+        if (fd < 0 || fd > 2) {
+          throw new Error('fd_close not implemented');
+        }
+
+        return 0;
+      },
+      fd_seek(fd: number, offset: bigint, whence: number, newoffset: number): number {
+        throw new Error('fd_seek not implemented');
+      },
+      fd_fdstat_get(fd: number, buf: number): number {
+        throw new Error('fd_fdstat_get not implemented');
+      },
+      fd_read(fd: number, iovs_ptr: number, iovs_len: number, nread_ptr: number): number {
+        throw new Error('fd_read not implemented');
+      },
+      fd_fdstat_set_flags(fd: number, flags: number): number {
+        throw new Error('fd_fdstat_set_flags not implemented');
+      },
+      fd_filestat_get(fd: number, buf: number): number {
+        throw new Error('fd_filestat_get not implemented');
+      },
+      fd_filestat_set_size(fd: number, size: bigint): number {
+        throw new Error('fd_filestat_set_size not implemented');
+      },
+      path_create_directory(fd: number,
+        path_ptr: number,
+        path_len: number,): number {
+        throw new Error('path_create_directory not implemented');
+      },
+      path_filestat_get(fd: number,
+        flags: number,
+        path_ptr: number,
+        path_len: number,
+        filestat_ptr: number): number {
+        throw new Error('path_filestat_get not implemented');
+      },
+      fd_prestat_get(fd: number, buf_ptr: number): number {
+        throw new Error('fd_prestat_get not implemented');
+      },
+      fd_prestat_dir_name(
+        fd: number,
+        path_ptr: number,
+        path_len: number,
+      ): number {
+        throw new Error('fd_prestat_dir_name not implemented');
+      },
+      path_open(fd: number,
+        dirflags: number,
+        path_ptr: number,
+        path_len: number,
+        oflags: number,
+        fs_rights_base: number,
+        fs_rights_inheriting: number,
+        fd_flags: number,
+        opened_fd_ptr: number): number {
+        throw new Error('path_open not implemented');
+      },
+      poll_oneoff(in_ptr: number, out_ptr: number, nsubscriptions: number, nevents: number): number {
+        throw new Error('poll_oneoff not implemented');
+      },
+      proc_exit(rval: number): void {
+        throw new Error(`proc_exit: ${rval}`);
+      },
+      clock_time_get(id: number, precision: bigint, time: number): number {
+        const buffer = new DataView(memory().buffer);
+        buffer.setBigUint64(
+          time,
+          BigInt(new Date().getTime()) * 1_000_000n,
+          true,
+        );
+
+        return 0;
+      },
+      args_sizes_get(argc: number, argv_buf_size: number): number {
+        const buffer = new DataView(memory().buffer);
+        buffer.setUint32(argc, self.args.length, true);
+        let buf_size = 0;
+        for (const arg of self.args) {
+          buf_size += arg.length + 1;
+        }
+        buffer.setUint32(argv_buf_size, buf_size, true);
+        return 0;
+      },
+      args_get(argv: number, argv_buf: number): number {
+        const buffer = new DataView(memory().buffer);
+        const buffer8 = new Uint8Array(memory().buffer);
+        const orig_argv_buf = argv_buf;
+        for (let i = 0; i < self.args.length; i++) {
+          buffer.setUint32(argv, argv_buf, true);
+          argv += 4;
+          const arg = new TextEncoder().encode(self.args[i]);
+          buffer8.set(arg, argv_buf);
+          buffer.setUint8(argv_buf + arg.length, 0);
+          argv_buf += arg.length + 1;
+        }
+        return 0;
+      },
+
+      environ_sizes_get(environ_count: number, environ_size: number): number {
+        const buffer = new DataView(memory().buffer);
+        buffer.setUint32(environ_count, self.env.length, true);
+        let buf_size = 0;
+        for (const environ of self.env) {
+          buf_size += environ.length + 1;
+        }
+        buffer.setUint32(environ_size, buf_size, true);
+        return 0;
+      },
+      environ_get(environ: number, environ_buf: number): number {
+        const buffer = new DataView(memory().buffer);
+        const buffer8 = new Uint8Array(memory().buffer);
+        const orig_environ_buf = environ_buf;
+        for (let i = 0; i < self.env.length; i++) {
+          buffer.setUint32(environ, environ_buf, true);
+          environ += 4;
+          const e = new TextEncoder().encode(self.env[i]);
+          buffer8.set(e, environ_buf);
+          buffer.setUint8(environ_buf + e.length, 0);
+          environ_buf += e.length + 1;
+        }
+        return 0;
+      },
+    }
   }
 
   importObject() {
@@ -407,7 +557,11 @@ export class PluginWasi {
   }
 
   initialize(instance: WebAssembly.Instance) {
-    this.#initialize(instance);
+    if (!instance.exports.memory) {
+      throw new Error('The module has to export a default memory.');
+    }
+
+    this.inst = instance;
   }
 }
 
@@ -499,13 +653,12 @@ function wasiRuntime(module: WebAssembly.Instance): GuestRuntime | null {
   }
 
   const kind = reactorInit ? 'reactor' : 'command';
-  console.debug(`WASI (${kind}) runtime detected.`);
 
   return { type: GuestRuntimeType.Wasi, init: init, initialized: false };
 }
 
 function detectGuestRuntime(module: WebAssembly.Instance): GuestRuntime {
-  const none = { init: () => {}, type: GuestRuntimeType.None, initialized: true };
+  const none = { init: () => { }, type: GuestRuntimeType.None, initialized: true };
   return haskellRuntime(module) ?? wasiRuntime(module) ?? none;
 }
 
@@ -535,7 +688,7 @@ export type HttpRequest = {
 };
 
 export const embeddedRuntime =
-	'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';
+  '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';
 
 export const embeddedRuntimeHash = 'c04772bc7c7541980fe2e35fae881c190fcc8b4dbf20688ab7b42bec175366ca'
 
@@ -678,7 +831,7 @@ export class CurrentPlugin {
 export function encodeString(str: string) {
   var arr = [];
   for (var i = 0, len = str.length; i < len; i++) {
-      arr.push(str.charCodeAt(i));
+    arr.push(str.charCodeAt(i));
   }
   return new Uint8Array(arr);
 }
@@ -686,7 +839,7 @@ export function encodeString(str: string) {
 export function decodeString(arr: Uint8Array) {
   var str = '';
   for (var i = 0, len = arr.length; i < len; i++) {
-      str += String.fromCharCode(arr[i]);
+    str += String.fromCharCode(arr[i]);
   }
   return str;
 }
@@ -694,7 +847,7 @@ export function decodeString(arr: Uint8Array) {
 export function createPlugin(
   manifest: Manifest | ManifestWasm | ArrayBuffer,
   opts: ExtismPluginOptions = {},
-) : Plugin {
+): Plugin {
 
   const runtimeBuffer = toByteArray(embeddedRuntime);
   const runtime = instantiateExtismRuntime({

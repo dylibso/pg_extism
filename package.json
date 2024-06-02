@@ -34,7 +34,6 @@
     "typescript": "^4.8.4"
   },
   "dependencies": {
-    "@bjorn3/browser_wasi_shim": "^0.2.14",
     "base64-js": "^1.5.1",
     "cross-env": "^7.0.3",
     "crypto": "^1.0.1",

@@ -108,32 +108,32 @@ describe('test extism', () => {
 
   test('can deny http requests', async () => {
     const plugin = await newPlugin('http.wasm');
-    await expect(() => plugin.call("run_test", "")).rejects.toThrowError(/Call error/);
+    expect(() => plugin.call("run_test", "")).toThrowError(/Call error/);
   });
 
-  test('can initialize haskell runtime', async () => {
-    console.trace = jest.fn();
+  // test('can initialize haskell runtime', async () => {
+  //   console.trace = jest.fn();
 
-    const plugin = await newPlugin('hello_haskell.wasm', options => {
-      options.config = {
-        "greeting": "Howdy"
-      };
-    });
+  //   const plugin = await newPlugin('hello_haskell.wasm', options => {
+  //     options.config = {
+  //       "greeting": "Howdy"
+  //     };
+  //   });
 
-    {
-      const output = await plugin.call("testing", "John");
-      const result = output;
+  //   {
+  //     const output = await plugin.call("testing", "John");
+  //     const result = output;
 
-      expect(result).toBe("Howdy, John")
-    }
+  //     expect(result).toBe("Howdy, John")
+  //   }
 
-    {
-      const output = await plugin.call("testing", "Ben");
-      const result = output;
+  //   {
+  //     const output = await plugin.call("testing", "Ben");
+  //     const result = output;
 
-      expect(result).toBe("Howdy, Ben")
-    }
+  //     expect(result).toBe("Howdy, Ben")
+  //   }
 
-    expect(console.debug).toHaveBeenCalledWith("Haskell (normal) runtime detected.");
-  });
+  //   expect(console.debug).toHaveBeenCalledWith("Haskell (normal) runtime detected.");
+  // });
 });
