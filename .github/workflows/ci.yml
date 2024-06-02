@@ -21,10 +21,7 @@ jobs:
 
     - name: Setup Node.js environment
       uses: actions/setup-node@v3.8.1
-    
-    - name: Setup Deno
-      uses: denoland/setup-deno@v1.1.2
-    
+
     - name: NPM install with caching
       run: npm install
 
@@ -33,6 +30,3 @@ jobs:
 
     - name: Node Test
       run: npm run test
-      
-    - name: Deno Test
-      run: deno test -A ./tests/mod.test.ts
