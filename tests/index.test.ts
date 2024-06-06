@@ -111,29 +111,25 @@ describe('test extism', () => {
     expect(() => plugin.call("run_test", "")).toThrowError(/Call error/);
   });
 
-  // test('can initialize haskell runtime', async () => {
-  //   console.trace = jest.fn();
+  test('can initialize haskell runtime', async () => {
+    const plugin = await newPlugin('haskell.wasm', options => {
+      options.config = {
+        "greeting": "Howdy"
+      };
+    });
 
-  //   const plugin = await newPlugin('hello_haskell.wasm', options => {
-  //     options.config = {
-  //       "greeting": "Howdy"
-  //     };
-  //   });
+    {
+      const output = await plugin.call("greet", "John");
+      const result = output?.text();
 
-  //   {
-  //     const output = await plugin.call("testing", "John");
-  //     const result = output;
+      expect(result).toBe("Howdy, John")
+    }
 
-  //     expect(result).toBe("Howdy, John")
-  //   }
+    {
+      const output = await plugin.call("greet", "Ben");
+      const result = output?.text();
 
-  //   {
-  //     const output = await plugin.call("testing", "Ben");
-  //     const result = output;
-
-  //     expect(result).toBe("Howdy, Ben")
-  //   }
-
-  //   expect(console.debug).toHaveBeenCalledWith("Haskell (normal) runtime detected.");
-  // });
+      expect(result).toBe("Howdy, Ben")
+    }
+  });
 });

@@ -92,7 +92,7 @@ export class Plugin {
       throw Error(`Plugin error: function does not exist ${func_name}`);
     }
 
-    if (func_name != '_start' && this.guestRuntime?.init && !this.guestRuntime.initialized) {
+    if (func_name != '_start' && !this.guestRuntime.initialized) {
       this.guestRuntime.init();
       this.guestRuntime.initialized = true;
     }
@@ -618,18 +618,17 @@ function haskellRuntime(module: WebAssembly.Instance): GuestRuntime | null {
 
   const reactorInit = module.exports._initialize;
 
-  let init: () => void;
-  if (reactorInit) {
+  let init = () => {
+    if (reactorInit) {
+      //@ts-ignore
+      reactorInit(); 
+    }
+
     //@ts-ignore
-    init = () => reactorInit();
-  } else {
-    //@ts-ignore
-    init = () => haskellInit();
+    haskellInit();
   }
 
   const kind = reactorInit ? 'reactor' : 'normal';
-  console.debug(`Haskell (${kind}) runtime detected.`);
-
   return { type: GuestRuntimeType.Haskell, init: init, initialized: false };
 }
 
