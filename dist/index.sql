@@ -801,6 +801,9 @@ AS $function$
             const response = cp.alloc(n);
             return response;
           },
+          length_unsafe(cp, n) {
+            return cp.lengthUnsafe(n);
+          },
           free(cp, n) {
             cp.free(n);
           },
@@ -1040,6 +1043,14 @@ AS $function$
               environ_buf += e.length + 1;
             }
             return 0;
+          },
+          random_get(buf, buf_len) {
+            const buffer = new DataView(memory().buffer);
+            for (let i = 0; i < buf_len; i++) {
+              const randomByte = Math.floor(Math.random() * 256);
+              buffer.setUint8(buf + i, randomByte);
+            }
+            return 0;
           }
         };
       }
@@ -1195,7 +1206,7 @@ AS $function$
       length(offset) {
         return this.#extism.exports.length(offset);
       }
-      length_unsafe(offset) {
+      lengthUnsafe(offset) {
         return this.#extism.exports.length_unsafe(offset);
       }
       inputLength() {

@@ -169,6 +169,9 @@ export class Plugin {
         const response = cp.alloc(n);
         return response;
       },
+      length_unsafe(cp: CurrentPlugin, n: bigint): bigint {
+        return cp.lengthUnsafe(n);
+      },
       free(cp: CurrentPlugin, n: bigint) {
         cp.free(n);
       },
@@ -549,6 +552,16 @@ export class PluginWasi {
         }
         return 0;
       },
+      random_get(buf: number, buf_len: number): number {
+        const buffer = new DataView(memory().buffer);
+      
+        for (let i = 0; i < buf_len; i++) {
+          const randomByte = Math.floor(Math.random() * 256);
+          buffer.setUint8(buf + i, randomByte);
+        }
+
+        return 0;
+      }
     }
   }
 
@@ -809,7 +822,7 @@ export class CurrentPlugin {
     return (this.#extism.exports.length as Function)(offset);
   }
 
-  length_unsafe(offset: bigint): bigint {
+  lengthUnsafe(offset: bigint): bigint {
     return (this.#extism.exports.length_unsafe as Function)(offset);
   }
 
