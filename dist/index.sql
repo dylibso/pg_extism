@@ -707,6 +707,16 @@ AS $function$
       LogLevel2["error"] = "error";
       return LogLevel2;
     })(LogLevel || {});
+    function logLevelToNumber(level) {
+      const levels = {
+        ["trace" /* trace */]: 0,
+        ["debug" /* debug */]: 1,
+        ["info" /* info */]: 2,
+        ["warn" /* warn */]: 3,
+        ["error" /* error */]: 4
+      };
+      return levels[level];
+    }
     var Plugin = class {
       moduleData;
       currentPlugin;
@@ -810,16 +820,6 @@ AS $function$
         this.guestRuntime = detectGuestRuntime(this.module.instance);
         return this.module;
       }
-      logLevelToNumber(level) {
-        const levels = {
-          ["trace" /* trace */]: 0,
-          ["debug" /* debug */]: 1,
-          ["info" /* info */]: 2,
-          ["warn" /* warn */]: 3,
-          ["error" /* error */]: 4
-        };
-        return levels[level];
-      }
       makeEnv() {
         let plugin = this;
         var env = {
@@ -914,28 +914,28 @@ AS $function$
             return cp.length(i);
           },
           log_trace(cp, i) {
-            if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber("trace" /* trace */)) {
+            if (logLevelToNumber(plugin.logLevel) > logLevelToNumber("trace" /* trace */)) {
               return;
             }
             const s = cp.read(i)?.text();
             plv8.elog(DEBUG5, s);
           },
           log_debug(cp, i) {
-            if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber("debug" /* debug */)) {
+            if (logLevelToNumber(plugin.logLevel) > logLevelToNumber("debug" /* debug */)) {
               return;
             }
             const s = cp.read(i)?.text();
             plv8.elog(DEBUG1, s);
           },
           log_info(cp, i) {
-            if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber("info" /* info */)) {
+            if (logLevelToNumber(plugin.logLevel) > logLevelToNumber("info" /* info */)) {
               return;
             }
             const s = cp.read(i)?.text();
             plv8.elog(INFO, s);
           },
           log_warn(cp, i) {
-            if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber("warn" /* warn */)) {
+            if (logLevelToNumber(plugin.logLevel) > logLevelToNumber("warn" /* warn */)) {
               return;
             }
             const s = cp.read(i)?.text();
@@ -946,7 +946,7 @@ AS $function$
             plv8.elog(ERROR, s);
           },
           get_log_level: () => {
-            return this.logLevelToNumber(plugin.logLevel);
+            return logLevelToNumber(plugin.logLevel);
           }
         };
         return env;

@@ -35,6 +35,17 @@ export enum LogLevel {
   error = 'error'
 }
 
+function logLevelToNumber(level: LogLevel): number {
+  const levels: Record<LogLevel, number> = {
+    [LogLevel.trace]: 0,
+    [LogLevel.debug]: 1,
+    [LogLevel.info]: 2,
+    [LogLevel.warn]: 3,
+    [LogLevel.error]: 4
+  };
+  return levels[level];
+}
+
 export class Plugin {
   moduleData: ArrayBuffer;
   currentPlugin: CurrentPlugin;
@@ -179,17 +190,6 @@ export class Plugin {
     return this.module;
   }
 
-  private logLevelToNumber(level: LogLevel): number {
-    const levels: Record<LogLevel, number> = {
-      [LogLevel.trace]: 0,
-      [LogLevel.debug]: 1,
-      [LogLevel.info]: 2,
-      [LogLevel.warn]: 3,
-      [LogLevel.error]: 4
-    };
-    return levels[level];
-  }
-
   private makeEnv(): any {
     let plugin = this;
     var env: any = {
@@ -284,7 +284,7 @@ export class Plugin {
         return cp.length(i);
       },
       log_trace(cp: CurrentPlugin, i: bigint) {
-        if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber(LogLevel.trace)) {
+        if (logLevelToNumber(plugin.logLevel) > logLevelToNumber(LogLevel.trace)) {
           return;
         }
         
@@ -293,7 +293,7 @@ export class Plugin {
         plv8.elog(DEBUG5, s);
       },
       log_debug(cp: CurrentPlugin, i: bigint) {
-        if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber(LogLevel.debug)) {
+        if (logLevelToNumber(plugin.logLevel) > logLevelToNumber(LogLevel.debug)) {
           return;
         }
 
@@ -302,7 +302,7 @@ export class Plugin {
         plv8.elog(DEBUG1, s);
       },
       log_info(cp: CurrentPlugin, i: bigint) {
-        if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber(LogLevel.info)) {
+        if (logLevelToNumber(plugin.logLevel) > logLevelToNumber(LogLevel.info)) {
           return;
         }
 
@@ -311,7 +311,7 @@ export class Plugin {
         plv8.elog(INFO, s);
       },
       log_warn(cp: CurrentPlugin, i: bigint) {
-        if (this.logLevelToNumber(plugin.logLevel) > this.logLevelToNumber(LogLevel.warn)) {
+        if (logLevelToNumber(plugin.logLevel) > logLevelToNumber(LogLevel.warn)) {
           return;
         }
 
@@ -325,7 +325,7 @@ export class Plugin {
         plv8.elog(ERROR, s);
       },
       get_log_level: (): number => {
-        return this.logLevelToNumber(plugin.logLevel);
+        return logLevelToNumber(plugin.logLevel);
       },
     };
 
