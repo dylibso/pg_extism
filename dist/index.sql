@@ -721,7 +721,6 @@ AS $function$
       moduleData;
       currentPlugin;
       vars;
-      input;
       output;
       module;
       options;
@@ -732,7 +731,6 @@ AS $function$
         this.moduleData = moduleData;
         this.currentPlugin = new CurrentPlugin(this, extism);
         this.vars = {};
-        this.input = new Uint8Array();
         this.output = new Uint8Array();
         this.options = options;
         this.guestRuntime = { type: GuestRuntimeType.None, init: () => {
@@ -762,8 +760,9 @@ AS $function$
       }
       callRaw(func_name, input) {
         const module2 = this.instantiateModule();
-        this.input = input;
         this.currentPlugin.reset();
+        const inputOffset = this.currentPlugin.store(input);
+        this.currentPlugin.inputSet(inputOffset, BigInt(input.length));
         let func = module2.instance.exports[func_name];
         if (!func) {
           throw Error(`Plugin error: function does not exist ${func_name}`);
@@ -850,15 +849,14 @@ AS $function$
           input_offset(cp) {
             return cp.inputOffset();
           },
-          input_length() {
-            return BigInt(plugin.input.length);
+          input_length(cp) {
+            return cp.inputLength();
           },
           input_load_u8(cp, i) {
-            return plugin.input[Number(i)];
+            return cp.inputLoadU8(i);
           },
           input_load_u64(cp, idx) {
-            let cast = new DataView(plugin.input.buffer, Number(idx));
-            return cast.getBigUint64(0, true);
+            return cp.inputLoadU64(idx);
           },
           output_set(cp, offset, length) {
             const offs = Number(offset);
@@ -1262,6 +1260,15 @@ AS $function$
       }
       inputOffset() {
         return this.#extism.exports.input_offset();
+      }
+      inputSet(offset, len) {
+        this.#extism.exports.input_set(offset, len);
+      }
+      inputLoadU8(offset) {
+        return this.#extism.exports.input_load_u8(offset);
+      }
+      inputLoadU64(offset) {
+        return this.#extism.exports.input_load_u64(offset);
       }
       free(offset) {
         if (offset == BigInt(0)) {

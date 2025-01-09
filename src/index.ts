@@ -50,7 +50,6 @@ export class Plugin {
   moduleData: ArrayBuffer;
   currentPlugin: CurrentPlugin;
   vars: Record<string, Uint8Array>;
-  input: Uint8Array;
   output: Uint8Array;
   module?: WebAssembly.WebAssemblyInstantiatedSource;
   options: ExtismPluginOptions;
@@ -62,7 +61,6 @@ export class Plugin {
     this.moduleData = moduleData;
     this.currentPlugin = new CurrentPlugin(this, extism);
     this.vars = {};
-    this.input = new Uint8Array();
     this.output = new Uint8Array();
     this.options = options;
     this.guestRuntime = { type: GuestRuntimeType.None, init: () => { }, initialized: true };
@@ -111,10 +109,11 @@ export class Plugin {
    */
   callRaw(func_name: string, input: Uint8Array): Uint8Array {
     const module = this.instantiateModule();
-
-    this.input = input;
-
     this.currentPlugin.reset();
+
+    // Store the input in kernel memory
+    const inputOffset = this.currentPlugin.store(input);
+    this.currentPlugin.inputSet(inputOffset, BigInt(input.length));
 
     let func = module.instance.exports[func_name];
     if (!func) {
@@ -220,15 +219,14 @@ export class Plugin {
       input_offset(cp: CurrentPlugin): bigint {
         return cp.inputOffset();
       },
-      input_length(): bigint {
-        return BigInt(plugin.input.length);
+      input_length(cp: CurrentPlugin): bigint {
+        return cp.inputLength();
       },
       input_load_u8(cp: CurrentPlugin, i: bigint): number {
-        return plugin.input[Number(i)];
+        return cp.inputLoadU8(i);
       },
       input_load_u64(cp: CurrentPlugin, idx: bigint): bigint {
-        let cast = new DataView(plugin.input.buffer, Number(idx));
-        return cast.getBigUint64(0, true);
+        return cp.inputLoadU64(idx);
       },
       output_set(cp: CurrentPlugin, offset: bigint, length: bigint) {
         const offs = Number(offset);
@@ -881,6 +879,18 @@ export class CurrentPlugin {
 
   inputOffset(): bigint {
     return (this.#extism.exports.input_offset as Function)();
+  }
+
+  inputSet(offset: bigint, len: bigint): void {
+    (this.#extism.exports.input_set as Function)(offset, len);
+  }
+
+  inputLoadU8(offset: bigint): number {
+    return (this.#extism.exports.input_load_u8 as Function)(offset);
+  }
+
+  inputLoadU64(offset: bigint): bigint {
+    return (this.#extism.exports.input_load_u64 as Function)(offset);
   }
 
   /**
